@@ -398,6 +398,18 @@ class Solr(object):
 
         return self._send_request('post', path, message, {'Content-type': 'text/xml; charset=utf-8'})
 
+    def _replication(self, command, **kwargs):
+        # Send replication command via GET. Returns response in JSON.
+        params = {
+            'command': command,
+            'wt': 'json',
+        }
+        if kwargs:
+            params.update(**kwargs)
+        params_encoded = safe_urlencode(params, True)
+        path = 'replication/?%s' % params_encoded
+        return self._send_request('get', path)
+
     def _extract_error(self, resp):
         """
         Extract the actual error message from a solr response.
@@ -954,6 +966,64 @@ class Solr(object):
                 metadata[raw_metadata.pop()] = raw_metadata.pop()
 
         return data
+
+    def get_index_version(self):
+        """
+        Get version number of latest index.
+
+        Returns dictionary with two keys: 'generation' and 'indexversion'.
+
+        Usage::
+
+            solr.get_index_version()
+
+        """
+        response = self._replication('indexversion')
+        result = self.decoder.decode(response)
+        return {
+            'generation': result['generation'],
+            'indexversion': result['indexversion'],
+        }
+
+    def abort_fetch(self):
+        """
+        Abort copying index from master to slave command.
+
+        Usage::
+
+            solr.abort_fetch()
+
+        """
+        response = self._replication('abortfetch')
+        return self.decoder.decode(response)
+
+    def create_backup(self, location=None, numberToKeep=None):
+        """Create backup on master.
+
+        If there is no committed index data in the server, does nothing.
+
+        Optionally accepts ``location``, which is the directory to write the
+        backup to on disk. Default is ``None``.
+
+        Optionally accepts ``numberToKeep`` to indicate how many backups to
+        retain (including this one). Default is ``None`` (i.e., retain all).
+        Older backups will be automatically deleted.
+        (NOTE: this parameter cannot be specified if "maxNumberOfBackups" was
+        specified in the configuration.)
+
+        Usage::
+
+            solr.create_backup()
+            solr.create_backup(location='/foo/bar', numberToKeep=3)
+
+        """
+        params = {}
+        if location is not None:
+            params['location'] = location
+        if numberToKeep is not None:
+            params['numberToKeep'] = numberToKeep
+        response = self._replication('backup', **params)
+        return self.decoder.decode(response)
 
 
 class SolrCoreAdmin(object):

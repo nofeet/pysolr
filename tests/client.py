@@ -2,7 +2,11 @@
 from __future__ import unicode_literals
 
 import datetime
+import os
+import shutil
 import sys
+import tempfile
+import time
 
 from pysolr import (Solr, Results, SolrError, unescape_html, safe_urlencode,
                     force_unicode, force_bytes, sanitize, json, ET, IS_PY3,
@@ -525,9 +529,44 @@ class SolrTestCase(unittest.TestCase):
         # round-trip:
         self.assertEqual(['Test Title ☃☃'], m['title'])
 
+    def test_indexversion(self):
+        results = self.solr.get_index_version()
+        self.assertIn('generation', results)
+        self.assertIn('indexversion', results)
+
+    def test_abortfetch(self):
+        # This will return an error because our test Solr instance does not have
+        # a slave. So just try calling it and look for 'status' in the response.
+        results = self.solr.abort_fetch()
+        self.assertIn('status', results)
+
     def test_full_url(self):
         self.solr.url = 'http://localhost:8983/solr/core0'
         full_url = self.solr._create_full_url(path='/update')
 
         # Make sure trailing and leading slashes do not collide:
         self.assertEqual(full_url, 'http://localhost:8983/solr/core0/update')
+
+
+class SolrBackupTestCase(SolrTestCase):
+
+    def setUp(self):
+        # Create and store a temporary backup location.
+        super(SolrBackupTestCase, self).setUp()
+        self.backup_dir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        # Delete contents of our temporary backup location.
+        try:
+            shutil.rmtree(self.backup_dir)
+        except OSError:
+            # Solr might still be writing backups.
+            # Wait a few seconds, then try again.
+            time.sleep(3)
+            shutil.rmtree(self.backup_dir)
+
+    def test_create_backup(self):
+        self.assertEquals(len(os.listdir(self.backup_dir)), 0)
+        results = self.solr.create_backup(location=self.backup_dir)
+        self.assertEqual(results['status'], 'OK')
+        self.assertEquals(len(os.listdir(self.backup_dir)), 1)
